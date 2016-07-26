@@ -40,5 +40,5 @@ EM.run do
     serv.slave_pool = $pool
   end
 
-  $stderr.puts "Websocks is running on socks5://127.0.0.1:#{options[:port]}"
+  $stderr.puts "[  OK  ] Websocks is running on socks5://127.0.0.1:#{options[:port]}"
 end

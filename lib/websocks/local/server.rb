@@ -6,6 +6,7 @@ require "thread"
 module Websocks::Local::Server
   class Slave
     def initialize(config)
+      puts "         Slave created"
       @on_connect = []
       @on_failure = []
 
@@ -32,6 +33,7 @@ module Websocks::Local::Server
         end
 
         @slave.onopen do
+          $stderr.puts "[  OK  ] Slave was connected"
           @slave.send config[:password], type: :text
         end
 
@@ -205,6 +207,7 @@ module Websocks::Local::Server
     def receive_request(req)
       if req.cmd == 1 # TCP Connect
         addr = req.address.serialize
+        puts "         Connect: #{addr}"
         begin
           @slave = @slave_pool.get_another
           @slave.connect self, addr, req.port
@@ -220,7 +223,7 @@ module Websocks::Local::Server
 
           @slave.on_failure do |reason = :failure|
             if reason == :auth
-              $stderr.puts "Incorrect password"
+              $stderr.puts "[ !! ] Incorrect password"
             end
             send_obj Reply.new reply: 5
             close_connection_after_writing

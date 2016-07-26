@@ -26,7 +26,6 @@ Gem::Specification.new do |spec|
 
   spec.add_runtime_dependency "eventmachine", "~> 1.2.0.1"
   spec.add_runtime_dependency "bindata", "~> 2.3.1"
-  spec.add_runtime_dependency "sinatra", "~> 1.4.7"
   spec.add_runtime_dependency "em-websocket", "~> 0.5.1"
   spec.add_runtime_dependency "websocket-eventmachine-client", "~> 1.1.0"
 end

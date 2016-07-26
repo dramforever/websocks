@@ -6,62 +6,97 @@ require "thread"
 module Websocks::Local::Server
   class Slave
     def initialize(config)
-      @slave = WebSocket::EventMachine::Client.connect(
-          uri: config[:uri],
-          headers: {"X-Websocks" => "1"}
-      )
+      @on_connect = []
+      @on_failure = []
 
-      @slave.instance_eval do
-        @master = nil
-        @connected = false
-        @died = false
-        @ok = false
-        @buffer = []
-      end
+      EM.next_tick do
+        @slave = WebSocket::EventMachine::Client.connect(
+            uri: config[:uri],
+            headers: {"X-Websocks" => "1"}
+        )
 
-      class << @slave
-        attr_accessor :master
-        attr_accessor :connected
-        attr_accessor :died
-        attr_accessor :ok
-        attr_accessor :buffer
-      end
-
-      @slave.onopen do
-        @slave.ok = true
-        @slave.buffer.each do |msg|
-          @slave.send msg, type: :binary
+        @slave.instance_eval do
+          @master = nil
+          @connected = false
+          @died = false
+          @ok = false
+          @buffer = []
         end
-        @slave.buffer = []
-      end
 
-      @slave.onmessage do |msg, type|
-        if type == :binary and msg.length > 0
-          type = msg.each_byte.first
-          payload = msg.byteslice(1..-1)
+        class << @slave
+          attr_accessor :master
+          attr_accessor :connected
+          attr_accessor :died
+          attr_accessor :ok
+          attr_accessor :buffer
+        end
 
-          if @slave.master
-            if type == 1
-              @slave.master.close_connection_after_writing
-              @slave.master = nil
-              @connected = false
+        @slave.onopen do
+          @slave.send config[:password], type: :text
+        end
+
+        @slave.onmessage do |msg, type|
+          if type == :binary and msg.length > 0
+            type = msg.each_byte.first
+            payload = msg.byteslice(1..-1)
+
+            if @slave.master
+              if type == 1
+                @slave.master.close_connection_after_writing
+                @slave.master = nil
+                @connected = false
+              else
+                @slave.master.send_data payload
+              end
+            end
+          elsif type == :text and not @slave.ok
+            if msg == "OK"
+              @slave.ok = true
+              @slave.buffer.each do |m|
+                @slave.send m, type: :binary
+              end
+              @slave.buffer = []
+              @on_connect.each &:call
+              @on_connect = []
             else
-              @slave.master.send_data payload
+              @slave.close
+              @on_failure.each { |p| p.call :auth }
+              @on_failure = []
             end
           end
         end
-      end
 
-      @slave.onclose do
-        @slave.connected = false
-        @slave.died = true
+        @slave.onclose do
+          unless @slave.connected
+            @on_failure.each &:call
+            @on_failure = []
+          end
+
+          @slave.connected = false
+          @slave.died = true
+        end
+
+        if @on_established
+          @on_established.call
+          @on_established = nil
+        end
       end
     end
 
+    def on_connect(&blk)
+      @on_connect.push blk
+    end
+
+    def on_failure(&blk)
+      @on_failure.push blk
+    end
+
     def connect(master, addr, port)
-      @slave.master = master
-      send_binary [port].pack("S>") + addr
-      @slave.connected = true
+      @on_established = proc do
+        @slave.master = master
+        send_binary [port].pack("S>") + addr
+        @slave.connected = true
+      end
     end
 
     def connected?
@@ -124,7 +159,6 @@ module Websocks::Local::Server
     include Websocks::Local::Socks
 
     attr_accessor :buffer
-    attr_accessor :config
     attr_accessor :slave_pool
 
     def post_init
@@ -175,12 +209,22 @@ module Websocks::Local::Server
           @slave = @slave_pool.get_another
           @slave.connect self, addr, req.port
 
-          send_obj Reply.new(
-              reply: 0,
-              addr_type: 1,
-              address: Ipv4.new(x: [0, 0, 0, 0]),
-              port: 1234
-          )
+          @slave.on_connect do
+            send_obj Reply.new(
+                reply: 0,
+                addr_type: 1,
+                address: Ipv4.new(x: [0, 0, 0, 0]),
+                port: 1234
+            )
+          end
+
+          @slave.on_failure do |reason = :failure|
+            if reason == :auth
+              $stderr.puts "Incorrect password"
+            end
+            send_obj Reply.new reply: 5
+            close_connection_after_writing
+          end
         rescue
           puts $!
           puts $!.backtrace

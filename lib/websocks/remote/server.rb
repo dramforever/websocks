@@ -2,8 +2,11 @@ require "em-websocket"
 
 module Websocks
   module Remote
-    def self.run
-      EM::WebSocket.run host: "0.0.0.0", port: 4567 do |ws|
+    def self.run(config)
+      EM::WebSocket.run(
+          host: "0.0.0.0",
+          port: config[:port]
+      ) do |ws|
         class << ws
           attr_accessor :external
           attr_accessor :buffer
@@ -16,9 +19,15 @@ module Websocks
           @connected = false
         end
 
-        ws.onopen do
-          ws.connected = true
-          ws.buffer.each { |msg| ws.send_binary msg }
+        ws.onmessage do |msg|
+          if msg == config[:password]
+            ws.send_text "OK"
+            ws.connected = true
+            ws.buffer.each { |m| ws.send_binary m }
+          else
+            ws.send_text "BAD"
+            ws.close
+          end
         end
 
         ws.onbinary do |msg|
@@ -52,9 +61,6 @@ module Websocks
                   class << c
                     attr_accessor :connected
                     attr_accessor :buffer
-                  end
-
-                  def c.post_init
                   end
 
                   def c.connection_completed

@@ -1,0 +1,44 @@
+#!/usr/bin/env ruby
+
+require "eventmachine"
+require "optparse"
+require "websocks/local"
+
+options = {}
+
+OptionParser.new do |parser|
+  parser.on "--port PORT", Integer,
+            "Local SOCKS port number" do |port|
+    options[:port] = port
+  end
+  parser.on "-c", "--host HOST",
+            "Remote host" do |host|
+    options[:host] = host
+  end
+  parser.on "-p", "--password PASSWORD",
+            "Password" do |password|
+    options[:password] = password
+  end
+end.parse!
+
+unless options[:host] and options[:password]
+  $stderr.puts "Usage: websocks [--port PORT] [-h | --host] wss://example.com:9999 [-p | --password] STRONGpassw0rd"
+  exit 1
+end
+
+options[:port] = 1080 unless options[:port]
+
+$pool = Websocks::Local::Server::SlavePool.new(
+    uri: options[:host],
+    password: options[:password]
+)
+
+EM.run do
+  EM.start_server(
+      "127.0.0.1", options[:port],
+      Websocks::Local::Server::Machine) do |serv|
+    serv.slave_pool = $pool
+  end
+
+  $stderr.puts "Websocks is running on socks5://127.0.0.1:#{options[:port]}"
+end

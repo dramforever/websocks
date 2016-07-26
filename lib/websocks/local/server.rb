@@ -3,10 +3,33 @@ require "websocket-eventmachine-client"
 require "websocks/local/socks"
 require "thread"
 
+module Logger
+  $stderr.sync = true
+
+  LOCK = Mutex.new
+  CONFIG = {cur_data: ""}
+
+  def self.log(x)
+    LOCK.synchronize do
+      $stderr.write "\r" + " " * CONFIG[:cur_data].length + "\r"
+      $stderr.puts x
+      $stderr.write CONFIG[:cur_data]
+    end
+  end
+
+  def self.update(x)
+    LOCK.synchronize do
+      $stderr.write "\r" + " " * CONFIG[:cur_data].length + "\r"
+      CONFIG[:cur_data] = x
+      $stderr.write CONFIG[:cur_data]
+    end
+  end
+end
+
 module Websocks::Local::Server
   class Slave
     def initialize(config)
-      puts "         Slave created"
+      Logger.log "         Slave created"
       @on_connect = []
       @on_failure = []
 
@@ -33,7 +56,7 @@ module Websocks::Local::Server
         end
 
         @slave.onopen do
-          $stderr.puts "[  OK  ] Slave was connected"
+          Logger.log "[  OK  ] Slave was connected"
           @slave.send config[:password], type: :text
         end
 
@@ -76,6 +99,8 @@ module Websocks::Local::Server
 
           @slave.connected = false
           @slave.died = true
+
+          Logger.log "[  ==  ] Slave connection closed"
         end
 
         if @on_established
@@ -131,18 +156,23 @@ module Websocks::Local::Server
       @pool = []
       @config = config
       @lock = Mutex.new
+      @total = 0
     end
 
     def get_another
       @lock.synchronize do
-        while not @pool.empty? and @pool[0].died?
-          @pool.shift
-        end
+        @pool.reject! &:died?
+
         if @pool.empty?
-          Slave.new @config
+          res = Slave.new @config
+          @total += 1
         else
-          @pool.shift
+          res = @pool.shift
         end
+
+        log_current
+
+        res
       end
     end
 
@@ -152,8 +182,15 @@ module Websocks::Local::Server
           @pool.push(sl)
         elsif not sl.ok?
           sl.close
+          @total -= 1
         end
+
+        log_current
       end
+    end
+
+    def log_current
+      Logger.update "         #{@pool.length} / #{@total} slaves queued"
     end
   end
 
@@ -207,7 +244,7 @@ module Websocks::Local::Server
     def receive_request(req)
       if req.cmd == 1 # TCP Connect
         addr = req.address.serialize
-        puts "         Connect: #{addr}"
+        Logger.log "         Connect: #{addr}"
         begin
           @slave = @slave_pool.get_another
           @slave.connect self, addr, req.port
@@ -219,11 +256,13 @@ module Websocks::Local::Server
                 address: Ipv4.new(x: [0, 0, 0, 0]),
                 port: 1234
             )
+
+            Logger.log "[  OK  ] Remote connected: #{addr}"
           end
 
           @slave.on_failure do |reason = :failure|
             if reason == :auth
-              $stderr.puts "[ !! ] Incorrect password"
+              Logger.log "[  !!  ] Incorrect password"
             end
             send_obj Reply.new reply: 5
             close_connection_after_writing

@@ -45,7 +45,7 @@ module Websocks
               initial_length: 8
 
         def serialize
-          x.to_a.join ":"
+          x.map { |a| a.to_s 16 }.to_a.join ":"
         end
       end
 

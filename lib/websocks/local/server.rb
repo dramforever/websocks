@@ -6,11 +6,13 @@ module Websocks::Local::Server
   module Machine
     include Websocks::Local::Socks
 
+    attr_accessor :buffer
+
     def post_init
       @buffer = ""
       @waiting = Hello
       @next_call = :receive_hello
-      @connection = nil
+      @slave = nil
     end
 
     def send_obj(obj)
@@ -18,8 +20,12 @@ module Websocks::Local::Server
     end
 
     def receive_data data
-      if @connection
-        @connection.send_data data
+      if @slave
+        if @slave.connected
+          @slave.send_data data
+        else
+          @buffer << data
+        end
       else
         @buffer << data
 
@@ -29,6 +35,10 @@ module Websocks::Local::Server
           send @next_call, x
         rescue EOFError
           # Not enough data yet, wait for next time
+        rescue
+          p $!
+          # Something wrong happened with the client
+          close_connection
         end
       end
     end
@@ -50,27 +60,35 @@ module Websocks::Local::Server
         puts("Connection to %s" % addr)
         begin
           outer = self
-          @connection = EM.connect addr, req.port do |c|
-            c.instance_eval { @connection = outer }
+          @slave = EM.connect addr, req.port do |c|
+            c.instance_eval do
+              @master = outer
+              @connected = false
+            end
+
+            class << c
+              attr_accessor :connected
+            end
+
             def c.post_init
             end
 
             def c.connection_completed
+              @connected = true
+              send_data @master.buffer
             end
 
             def c.receive_data(data)
               # I want this outer to refer to the object that
               # received the receive_request call
-              @connection.send_data data
+              @master.send_data data
             end
 
             def c.unbind
-              @connection.close_connection
+              @master.close_connection
             end
           end
         rescue
-          p addr
-          p $!
           send_obj Reply.new reply: 1
           close_connection_after_writing
           return
@@ -88,8 +106,8 @@ module Websocks::Local::Server
     end
 
     def unbind
-      if @connection
-        @connection.close_connection
+      if @slave
+        @slave.close_connection
       end
     end
   end

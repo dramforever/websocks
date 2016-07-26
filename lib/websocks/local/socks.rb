@@ -15,7 +15,7 @@ module Websocks
         array :auth_methods,
               type: :uint8,
               initial_length: :len,
-              initial_value: [1]
+              initial_value: [0]
       end
 
       class Auth < BinData::Record

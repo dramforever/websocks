@@ -67,6 +67,7 @@ module Websocks::Local::Server
 
             if @slave.master
               if type == 1
+                Logger.log "         Remote disconnected: #{@slave.master.addr}"
                 @slave.master.close_connection_after_writing
                 @slave.master = nil
                 @connected = false
@@ -199,6 +200,7 @@ module Websocks::Local::Server
 
     attr_accessor :buffer
     attr_accessor :slave_pool
+    attr_accessor :addr
 
     def post_init
       @buffer = ""
@@ -243,11 +245,12 @@ module Websocks::Local::Server
 
     def receive_request(req)
       if req.cmd == 1 # TCP Connect
-        addr = req.address.serialize
-        Logger.log "         Connect: #{addr}"
+        address = req.address.serialize
+        @addr = address
+        Logger.log "         Connect: #{address}"
         begin
           @slave = @slave_pool.get_another
-          @slave.connect self, addr, req.port
+          @slave.connect self, address, req.port
 
           @slave.on_connect do
             send_obj Reply.new(
@@ -257,7 +260,7 @@ module Websocks::Local::Server
                 port: 1234
             )
 
-            Logger.log "[  OK  ] Remote connected: #{addr}"
+            Logger.log "[  OK  ] Remote connected: #{address}"
           end
 
           @slave.on_failure do |reason = :failure|
@@ -280,8 +283,8 @@ module Websocks::Local::Server
     end
 
     def unbind
-      if @slave and @slave.connected?
-        @slave.send_binary "\x01" if @slave.ok?
+      if @slave and @slave.ok? and @slave.connected?
+        @slave.send_binary "\x01"
         @slave_pool.put_back @slave
       end
     end

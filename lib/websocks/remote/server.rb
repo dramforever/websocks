@@ -36,7 +36,9 @@ module Websocks
               type = msg.each_byte.first
               payload = msg.byteslice(1..-1)
               if type == 1
+                $stderr.puts "         Slave close #{ws.external.addr}"
                 ws.external.close_connection_after_writing
+                ws.external.connected = false
                 ws.external = nil
               else
                 if ws.external.connected
@@ -53,6 +55,7 @@ module Websocks
               begin
                 ws.external = EM.connect addr, port do |c|
                   c.instance_eval do
+                    @addr = addr
                     @slave = ws
                     @connected = false
                     @buffer = ""
@@ -61,9 +64,11 @@ module Websocks
                   class << c
                     attr_accessor :connected
                     attr_accessor :buffer
+                    attr_accessor :addr
                   end
 
                   def c.connection_completed
+                    $stderr.puts "[  OK  ] Connected to #{addr}"
                     @connected = true
                     send_data @buffer
                     @slave.buffer = ""
@@ -74,7 +79,10 @@ module Websocks
                   end
 
                   def c.unbind
-                    @slave.send_binary("\x01")
+                    if @connected
+                      $stderr.puts "         Remote close #{addr}"
+                      @slave.send_binary("\x01")
+                    end
                   end
                 end
               rescue

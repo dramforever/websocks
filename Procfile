@@ -1,1 +1,1 @@
-web: stack exec websocks-exe
+web: websocks-exe
